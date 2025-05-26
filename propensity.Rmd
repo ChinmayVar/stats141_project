@@ -1,0 +1,72 @@
+---
+title: "propensity model"
+author: "Andre Hiwatig"
+date: "2025-05-26"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Packages
+```{r}
+library(MatchIt)
+library(tableone)
+```
+
+Data
+```{r}
+df <- read.csv("new_updated.csv")
+
+# simplify colnames
+colnames(df) <- gsub("[[:punct:]]", "", colnames(df))
+
+# change resp var to binary
+df['TarsusresectedYesNo'] <- sapply(df[['TarsusresectedYesNo']], function(x) {ifelse(x == "Y", 1, 0)})
+
+head(df)
+
+```
+
+Propensity Matching
+```{r}
+# only included vars. with complete data 
+match_model <- matchit(TarsusresectedYesNo ~ PreopMRD1 + Age + ODOS, 
+                       data = df,
+                       method = "nearest",     
+                       ratio = 1)              
+summary(match_model)
+
+# matched dataset
+matched_data <- match.data(match_model)
+matched_data[matched_data['subclass'] == 1, ] # example
+```
+
+```{r}
+boxplot(MostrecentPostOpMRD1 ~ TarsusresectedYesNo, data = matched_data,
+        main = "Post-op MRD1 by Tarsectomy Group",
+        xlab = "Tarsectomy (0 = No, 1 = Yes)",
+        ylab = "Post-op MRD1 (mm)",
+        col = c("skyblue", "salmon"),
+        border = "gray40")
+
+```
+
+T-test
+```{r}
+t.test(MostrecentPostOpMRD1 ~ TarsusresectedYesNo, data = matched_data, paired = TRUE)
+
+model <- lm(MostrecentPostOpMRD1 ~ TarsusresectedYesNo, data = matched_data)
+summary(model)
+```
+Paired T-test
+```{r}
+treated <- matched_data[matched_data$TarsusresectedYesNo == 1, ]
+control <- matched_data[matched_data$TarsusresectedYesNo == 0, ]
+paired_data <- merge(treated, control, by = "subclass", suffixes = c("_treated", "_control"))
+t.test(paired_data$MostrecentPostOpMRD1_treated, paired_data$MostrecentPostOpMRD1_control, paired = TRUE)
+
+```
+
+
