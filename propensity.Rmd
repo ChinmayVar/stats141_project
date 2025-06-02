@@ -1,5 +1,5 @@
 ---
-title: "propensity model"
+title: "propensity models"
 author: "Andre Hiwatig"
 date: "2025-05-26"
 output: html_document
@@ -13,26 +13,40 @@ Packages
 ```{r}
 library(MatchIt)
 library(tableone)
+library(ggplot2)
 ```
 
 Data
 ```{r}
-df <- read.csv("new_updated.csv")
+df <- read.csv("new_updated.csv") # from github
 
 # simplify colnames
 colnames(df) <- gsub("[[:punct:]]", "", colnames(df))
 
-# change resp var to binary
+# change resp var to binary for matching 
 df['TarsusresectedYesNo'] <- sapply(df[['TarsusresectedYesNo']], function(x) {ifelse(x == "Y", 1, 0)})
 
-head(df)
+# impute gender by mode
+get_mode <- function(x) {
+  ux <- na.omit(unique(x))
+  ux[which.max(tabulate(match(x, ux)))]
+}
+mode_value <- get_mode(df[['GenderMale1Female2']])
+df$GenderMale1Female2[is.na(df$GenderMale1Female2)] <- mode_value
 
+# impute tissueresected by mean
+df$TissueResectedmm[is.na(df$TissueResectedmm)] <- mean(df$TissueResectedmm, na.rm = TRUE)
+
+# for patients with surgery in two eyes, remove the non-tarsectomy
+df <- df[!(df$X %in% c(156, 157, 158)), ]
+
+head(df)
 ```
 
-Propensity Matching
+#1: Propensity Matching (Ratio 1:1)
 ```{r}
 # only included vars. with complete data 
-match_model <- matchit(TarsusresectedYesNo ~ PreopMRD1 + Age + ODOS, 
+match_model <- matchit(TarsusresectedYesNo ~ PreopMRD1 + Age + GenderMale1Female2 + ODOS + TissueResectedmm, 
                        data = df,
                        method = "nearest",     
                        ratio = 1)              
@@ -41,27 +55,37 @@ summary(match_model)
 # matched dataset
 matched_data <- match.data(match_model)
 matched_data[matched_data['subclass'] == 1, ] # example
-```
 
-```{r}
+# balance covariates
+plot(match_model, type = "density", interactive = FALSE,
+     which.xs = ~ PreopMRD1 + Age + GenderMale1Female2 + ODOS + TissueResectedmm)
+summary(match_model)
+
+
+# boxplot for postopmrd1
 boxplot(MostrecentPostOpMRD1 ~ TarsusresectedYesNo, data = matched_data,
-        main = "Post-op MRD1 by Tarsectomy Group",
+        main = "Post-op MRD1 by Tarsectomy with Propensity Score Matching",
         xlab = "Tarsectomy (0 = No, 1 = Yes)",
         ylab = "Post-op MRD1 (mm)",
         col = c("skyblue", "salmon"),
         border = "gray40")
 
+# plot of differences
+ggplot(matched_data, aes(x = factor(subclass), y = MostrecentPostOpMRD1, color = factor(TarsusresectedYesNo), group = subclass)) +
+  geom_point(size = 2) +
+  geom_line() +
+  labs(x = "Matched Pair", y = "Post-Op MRD1", color = "Group") +
+  scale_color_manual(values = c("blue", "red"), labels = c("Control", "Treatment")) +
+  theme_minimal() +
+  theme(axis.text.x = element_blank())
 ```
 
-T-test
+Parametric Tests
 ```{r}
-t.test(MostrecentPostOpMRD1 ~ TarsusresectedYesNo, data = matched_data, paired = TRUE)
+# Unpaired T-Test
+t.test(MostrecentPostOpMRD1 ~ TarsusresectedYesNo, data = matched_data)
 
-model <- lm(MostrecentPostOpMRD1 ~ TarsusresectedYesNo, data = matched_data)
-summary(model)
-```
-Paired T-test
-```{r}
+# Paired T-Test
 treated <- matched_data[matched_data$TarsusresectedYesNo == 1, ]
 control <- matched_data[matched_data$TarsusresectedYesNo == 0, ]
 paired_data <- merge(treated, control, by = "subclass", suffixes = c("_treated", "_control"))
@@ -69,4 +93,58 @@ t.test(paired_data$MostrecentPostOpMRD1_treated, paired_data$MostrecentPostOpMRD
 
 ```
 
+Nonparametric Tests
+```{r}
+# Unpaired
+wilcox.test(treated$MostrecentPostOpMRD1, control$MostrecentPostOpMRD1)
+
+# Paired
+wilcox.test(treated$MostrecentPostOpMRD1, control$MostrecentPostOpMRD1, paired = TRUE)
+```
+
+#2: Propensity Matching (Ratio 1:2)
+
+```{r}
+# only included vars. with complete data 
+match_model <- matchit(TarsusresectedYesNo ~ PreopMRD1 + Age + GenderMale1Female2 + ODOS + TissueResectedmm, 
+                       data = df,
+                       method = "nearest",     
+                       ratio = 2)              
+summary(match_model)
+
+# matched dataset
+matched_data <- match.data(match_model)
+matched_data[matched_data['subclass'] == 1, ] # example
+
+# balance covariates
+plot(match_model, type = "density", interactive = FALSE,
+     which.xs = ~ PreopMRD1 + Age + GenderMale1Female2 + ODOS + TissueResectedmm)
+summary(match_model)
+
+# boxplot for postopmrd1
+boxplot(MostrecentPostOpMRD1 ~ TarsusresectedYesNo, data = matched_data,
+        main = "Post-op MRD1 by Tarsectomy with Propensity Score Matching",
+        xlab = "Tarsectomy (0 = No, 1 = Yes)",
+        ylab = "Post-op MRD1 (mm)",
+        col = c("skyblue", "salmon"),
+        border = "gray40")
+
+# plot of differences
+ggplot(matched_data, aes(x = factor(subclass), y = MostrecentPostOpMRD1, color = factor(TarsusresectedYesNo), group = subclass)) +
+  geom_point(size = 2) +
+  geom_line() +
+  labs(x = "Matched Pair", y = "Post-Op MRD1", color = "Group") +
+  scale_color_manual(values = c("blue", "red"), labels = c("Control", "Treatment")) +
+  theme_minimal() +
+  theme(axis.text.x = element_blank())
+```
+
+Tests
+```{r}
+# Unpaired T-Test (Parametric)
+t.test(MostrecentPostOpMRD1 ~ TarsusresectedYesNo, data = matched_data)
+
+# Unpaired (Nonparametric)
+wilcox.test(treated$MostrecentPostOpMRD1, control$MostrecentPostOpMRD1)
+```
 
