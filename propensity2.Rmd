@@ -1,0 +1,139 @@
+---
+title: "Propensity Scores Method for Treatment Pairings"
+author: "Andre Hiwatig"
+date: "2025-05-26"
+output: github_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Libraries
+```{r}
+library(MatchIt)
+library(tableone)
+library(ggplot2)
+library(cobalt)
+```
+
+# Data Cleaning
+
+Some changes made to the intial dataset were as follows:  
+- changed response variable to binary (0/1) for matching function.  
+- imputed gender by mode (didn't end up using predictor).  
+- imputed tissue resected (mm) by mean (didn't end up using predictor).  
+- for patients with > 1 surgery, remove the non-tarsectomy to avoid being matched to themself.   
+- changed character columns to factor. 
+
+```{r}
+df <- read.csv("new_updated.csv") # from github
+
+# simplify colnames
+colnames(df) <- gsub("[[:punct:]]", "", colnames(df))
+
+# change resp var to binary for matching 
+df['TarsusresectedYesNo'] <- sapply(df[['TarsusresectedYesNo']], function(x) {ifelse(x == "Y", 1, 0)})
+
+# impute gender by mode
+get_mode <- function(x) {
+  ux <- na.omit(unique(x))
+  ux[which.max(tabulate(match(x, ux)))]
+}
+mode_value <- get_mode(df[['GenderMale1Female2']])
+df$GenderMale1Female2[is.na(df$GenderMale1Female2)] <- mode_value
+
+# impute tissueresected by mean
+df$TissueResectedmm[is.na(df$TissueResectedmm)] <- mean(df$TissueResectedmm, na.rm = TRUE)
+
+# for patients with surgery in two eyes, remove the non-tarsectomy
+df <- df[!(df$X %in% c(156, 157, 158)), ]
+
+# datatypes to factor
+df$GenderMale1Female2 <- as.factor(df$GenderMale1Female2)
+df$ODOS <- as.factor(df$ODOS)
+
+head(df)
+```
+
+# Propensity Matching (Ratio 1:1)
+The following method calculates the probability (propensity) one would receive a tarsectomy based on the predictors PreopMRD1, Age, and ODOS. Then observations with similar propensity scores were paired with each other.
+```{r}
+# create a matched model with complete variables
+match_model <- matchit(TarsusresectedYesNo ~ PreopMRD1 + Age + ODOS, 
+                       data = df,
+                       method = "optimal",     
+                       ratio = 1)              
+matched_data <- match.data(match_model)
+
+# create a merged treatment control dataset for tests
+treated <- matched_data[matched_data$TarsusresectedYesNo == 1, ]
+control <- matched_data[matched_data$TarsusresectedYesNo == 0, ]
+paired_data <- merge(treated, control, by = "subclass", suffixes = c("_treated", "_control"))
+```
+
+## Covariate Balance
+To ensure that the treatment and control groups were even, we assessed the distribution of covariates before and after matching. The solid line represents the treatment group and the gray line is the control group. As we can see, this matching method gives us roughly the same distribution of covariates across the three predictors.
+
+The plot of Covariate Balance shows Standardized Mean Differences before and after matching. At a threshold of 0.2, all covariates are moderately balanced. Pre-Operation MRD1 had an SMD of -0.170, but it's difficult to balance because we saw in EDA that tarsectomies tend to occur in patients with lower Pre-Operation MRD1. Therefore, there aren't that many comparable patients in the control group for those with lower Pre-Operation MRD1. 
+
+```{r}
+# covariate balance plots
+plot(match_model, type = "density", interactive = FALSE,
+     which.xs = ~ PreopMRD1 + Age + ODOS )
+
+love.plot(match_model, binary = "std", threshold = 0.2)
+summary(match_model)
+```
+
+## Control/Treatment Comparisons
+(1) Boxplot: Distributions of Postop MRD1 show a clear positive effect of tarsectomy on Post-Op MRD1. Range is similar between control and treatment groups.
+(2) We only see 7/26 pairs where tarsectomy decreases postop mrd1. 
+```{r}
+# boxplot for postopmrd1
+boxplot(MostrecentPostOpMRD1 ~ TarsusresectedYesNo, data = matched_data,
+        main = "Post-op MRD1 by Tarsectomy with Propensity Score Matching",
+        xlab = "Tarsectomy (0 = No, 1 = Yes)",
+        ylab = "Post-op MRD1 (mm)",
+        col = c("skyblue", "salmon"),
+        border = "gray40")
+
+# plot of postop mrd differences (1)
+ggplot(matched_data, aes(x = factor(subclass), y = MostrecentPostOpMRD1, color = factor(TarsusresectedYesNo), group = subclass)) +
+  geom_point(size = 2) +
+  geom_line() +
+  labs(x = "Matched Pair", y = "Post-Op MRD1", color = "Group") +
+  scale_color_manual(values = c("blue", "red"), labels = c("Control", "Treatment")) +
+  theme_minimal() +
+  theme(axis.text.x = element_blank())
+
+# plot of postop mrd differences (2)
+paired_data$postopmrd1_change <- paired_data$MostrecentPostOpMRD1_treated - paired_data$MostrecentPostOpMRD1_control
+mean_postopchange = mean(paired_data$postopmrd1_change)
+paired_data$diff_color <- ifelse(paired_data$postopmrd1_change > 0, "Increased Post-Op MRD1", "Decreased Post-Op MRD1")
+ggplot(paired_data, aes(x =factor(subclass), y = postopmrd1_change, color = diff_color), group = subclass) +
+  geom_point(size = 2) +
+  labs(x = "Matched Pairs", y = "Difference in Post-Op MRD1", color = "Group") +
+  scale_color_manual(values = c("Increased Post-Op MRD1" = "green", "Decreased Post-Op MRD1" = "red")) +
+  theme_minimal() 
+```
+
+## Parametric Tests
+Both paired and unpaired t-tests show that tarsectomy has a signficant positive effect.
+```{r}
+# Unpaired T-Test
+t.test(paired_data$MostrecentPostOpMRD1_treated, paired_data$MostrecentPostOpMRD1_control)
+
+# Paired T-Test
+t.test(paired_data$MostrecentPostOpMRD1_treated, paired_data$MostrecentPostOpMRD1_control, paired = TRUE)
+```
+
+## Nonparametric Tests
+Both paired and unpaired t-tests show that tarsectomy has a signficant positive effect.
+```{r}
+# Unpaired
+wilcox.test(paired_data$MostrecentPostOpMRD1_treated, paired_data$MostrecentPostOpMRD1_control)
+
+# Paired
+wilcox.test(paired_data$MostrecentPostOpMRD1_treated, paired_data$MostrecentPostOpMRD1_control, paired = TRUE)
+```
