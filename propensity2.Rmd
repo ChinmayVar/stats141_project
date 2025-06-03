@@ -66,6 +66,8 @@ match_model <- matchit(TarsusresectedYesNo ~ PreopMRD1 + Age + ODOS,
                        ratio = 1)              
 matched_data <- match.data(match_model)
 
+summary(match_model)
+
 # create a merged treatment control dataset for tests
 treated <- matched_data[matched_data$TarsusresectedYesNo == 1, ]
 control <- matched_data[matched_data$TarsusresectedYesNo == 0, ]
