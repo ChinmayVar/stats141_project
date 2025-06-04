@@ -26,6 +26,8 @@ Some changes made to the intial dataset were as follows:
 - for patients with > 1 surgery, remove the non-tarsectomy to avoid being matched to themself.   
 - changed character columns to factor. 
 
+
+
 ```{r}
 df <- read.csv("new_updated.csv") # from github
 

@@ -16,53 +16,59 @@ library(MatchIt)
 library(tableone)
 library(ggplot2)
 library(readxl)
+library(cobalt)
+library(gridExtra)
+library(gridExtra)
+
 ```
 
 ## Explore Data
 
 ```{r}
-df <- read.csv("new_updated.csv") # from github
-colnames(df) <- gsub("[[:punct:]]", "", colnames(df))
-
-sum(is.na(df["GenderMale1Female2"]))
-
-df['TarsusresectedYesNo'] <- sapply(df[['TarsusresectedYesNo']], function(x) {ifelse(x == "Y", 1, 0)})
-
-sum(is.na(df$TissueResectedmm))
-
-df$X %in% c(156, 157, 158)
-
-df[df$X1eyetarsus1eyenormal == "yes", ]
-
-# View(df)
+# df <- read.csv("new_updated.csv") # from github
+# colnames(df) <- gsub("[[:punct:]]", "", colnames(df))
+# 
+# sum(is.na(df["GenderMale1Female2"]))
+# 
+# df['TarsusresectedYesNo'] <- sapply(df[['TarsusresectedYesNo']], function(x) {ifelse(x == "Y", 1, 0)})
+# 
+# sum(is.na(df$TissueResectedmm))
+# 
+# df$X %in% c(156, 157, 158)
+# 
+# df[df$X1eyetarsus1eyenormal == "yes", ]
+# 
+# # View(df)
+# 
+# df$TarsusresectedYesNo <- factor(df$TarsusresectedYesNo, levels = c(0, 1), labels = c("No", "Yes"))
 ```
 
 ### Original Dataset
 
 ```{r}
-excel_sheets("MMCR Data Stats Class.xlsx")
-patient_all <- read_excel("MMCR Data Stats Class.xlsx", sheet = "1999 to 2018")
-primary_ou <- read_excel("MMCR Data Stats Class.xlsx", sheet = "Primary OU")
-primary_excluding <- read_excel("MMCR Data Stats Class.xlsx", sheet = "Primary excluding")
-
-# Check Rows
-nrow(primary_ou)
-nrow(primary_excluding)
-
-colnames(patient_all)
-colnames(primary_ou)
-colnames(primary_excluding)
-
-# primary_excluding_no_last <- primary_excluding[, 1:(ncol(primary_excluding) - 1)]
-# primary_sorted <- primary_excluding_no_last[order(primary_excluding_no_last[["#"]]), ]
-# identical(primary_ou, primary_excluding_no_last)
-
-# Prepare for Merge Create Subset 
-patient_all_subset <- patient_all[, c('#', 'Patient_name', 'DOB', 'Previous Surgery? (yes =1, No = 0)',
-                                      'Post MMCR Surgery- ptosis?', 'Levator function', 'Sx Date')]
-
-# Drop NA rows from dataset
-primary_ou <- primary_ou[-(513:517), ]
+# excel_sheets("MMCR Data Stats Class.xlsx")
+# patient_all <- read_excel("MMCR Data Stats Class.xlsx", sheet = "1999 to 2018")
+# primary_ou <- read_excel("MMCR Data Stats Class.xlsx", sheet = "Primary OU")
+# primary_excluding <- read_excel("MMCR Data Stats Class.xlsx", sheet = "Primary excluding")
+# 
+# # Check Rows
+# nrow(primary_ou)
+# nrow(primary_excluding)
+# 
+# colnames(patient_all)
+# colnames(primary_ou)
+# colnames(primary_excluding)
+# 
+# # primary_excluding_no_last <- primary_excluding[, 1:(ncol(primary_excluding) - 1)]
+# # primary_sorted <- primary_excluding_no_last[order(primary_excluding_no_last[["#"]]), ]
+# # identical(primary_ou, primary_excluding_no_last)
+# 
+# # Prepare for Merge Create Subset 
+# patient_all_subset <- patient_all[, c('#', 'Patient_name', 'DOB', 'Previous Surgery? (yes =1, No = 0)',
+#                                       'Post MMCR Surgery- ptosis?', 'Levator function', 'Sx Date')]
+# 
+# # Drop NA rows from dataset
+# primary_ou <- primary_ou[-(513:517), ]
 
 ```
 
@@ -70,14 +76,14 @@ primary_ou <- primary_ou[-(513:517), ]
 ### Duplicated Patient Name Rows
 
 ```{r}
-# Step 1: Find names that appear more than once
-dupes <- df$Patientname[duplicated(df$Patientname)]
-
-# Step 2: Filter all rows where Patientname is one of the duplicates
-df[df$Patientname %in% dupes, ]
-
-
-### Remove Kenneth Low??
+# # Step 1: Find names that appear more than once
+# dupes <- df$Patientname[duplicated(df$Patientname)]
+# 
+# # Step 2: Filter all rows where Patientname is one of the duplicates
+# df[df$Patientname %in% dupes, ]
+# 
+# 
+# ### Remove Kenneth Low??
 ```
 
 
@@ -91,7 +97,11 @@ df <- read.csv("new_updated.csv")
 colnames(df) <- gsub("[[:punct:]]", "", colnames(df))
 
 # Change Tarsus Ressected Column to Boolean Value
-df['TarsusresectedYesNo'] <- sapply(df[['TarsusresectedYesNo']], function(x) {ifelse(x == "Y", 1, 0)})
+# df['TarsusresectedYesNo'] <- sapply(df[['TarsusresectedYesNo']], function(x) {ifelse(x == "Y", 1, 0)})
+
+# CJ CHANGE: Make into a factor
+df$TarsusresectedYesNo <- factor(df$TarsusresectedYesNo, levels = c("N", "Y"), labels = c("No", "Yes"))
+
 
 # CHANGED: Changed Gender to Categorical: Male and Female
 df['Gender'] <- sapply(df[['GenderMale1Female2']], function(x) {ifelse(x == 1, "Male", "Female")})
@@ -112,6 +122,11 @@ df$TissueResectedmm[is.na(df$TissueResectedmm)] <- mean(df$TissueResectedmm, na.
 # Exclude Patients with Surgeries in both eyes
 df <- df[!(df$X %in% c(156, 157, 158)), ]
 
+df$GenderMale1Female2 <- as.factor(df$GenderMale1Female2)
+df$ODOS <- as.factor(df$ODOS)
+
+
+
 head(df)
 ```
 
@@ -119,16 +134,17 @@ head(df)
 
 ```{r}
 summary(df$Age)
-# hist(df$Age, breaks = 20, main = "Age Distribution", xlab = "Age")
-# boxplot(df$Age, main = "Boxplot of Age", horizontal = TRUE)
-# ```
-# ```{r}
-# df$age_group <- cut(df$Age, breaks = 3, labels = c("Young", "Middle-aged", "Older"))
-# table(df$age_group)
+hist(df$Age, breaks = 20, main = "Age Distribution", xlab = "Age")
+boxplot(df$Age, main = "Boxplot of Age", horizontal = TRUE)
+```
 
-df$age_group <- cut(df$Age,
-                    breaks = c(0, 50, 70, Inf),
-                    labels = c("Young", "Middle-aged", "Older"))
+```{r}
+df$age_group <- cut(df$Age, breaks = 3, labels = c("Young", "Middle-aged", "Older"))
+table(df$age_group)
+
+# df$age_group <- cut(df$Age,
+#                     breaks = c(0, 50, 70, Inf),
+#                     labels = c("Young", "Middle-aged", "Older"))
 
 table(df$age_group)
 
@@ -137,27 +153,106 @@ table(df$age_group)
 
 ## Cj Propensity Models
 
-### Propensity Models (Ratio 1:1)
+### Propensity Models (Ratio 1:1) But Beter lol
+
+```{r}
+m_nearest <- matchit(TarsusresectedYesNo ~ PreopMRD1 + Age + ODOS,
+                     data = df, method = "nearest", ratio = 1)
+
+m_optimal <- matchit(TarsusresectedYesNo ~ PreopMRD1 + Age + ODOS,
+                     data = df, method = "optimal", ratio = 1)
+
+m_full <- matchit(TarsusresectedYesNo ~ PreopMRD1 + Age + ODOS,
+                  data = df, method = "full")
+
+m_quick <- matchit(TarsusresectedYesNo ~ PreopMRD1 + Age + ODOS,
+                   data = df, method = "quick")
+
+m_cem <- matchit(TarsusresectedYesNo ~ PreopMRD1 + Age + ODOS,
+                   data = df, method = "cem")
+
+```
+
+### Plot Covariate Models
+
+```{r}
+# Plot balance for each method
+love.plot(m_nearest, stats = "mean.diffs", abs = TRUE, 
+          main = "Covariate Balance: Nearest Matching", threshold = 0.1)
+
+love.plot(m_optimal, stats = "mean.diffs", abs = TRUE, 
+          main = "Covariate Balance: Optimal Matching", threshold = 0.1)
+
+love.plot(m_full, stats = "mean.diffs", abs = TRUE, 
+          main = "Covariate Balance: Full Matching", threshold = 0.1)
+
+love.plot(m_quick, stats = "mean.diffs", abs = TRUE, 
+          main = "Covariate Balance: Quick Matching", threshold = 0.1)
+
+love.plot(m_cem, stats = "mean.diffs", abs = TRUE, 
+          main = "Covariate Balance: CEM Matching", threshold = 0.1)
+
+```
+
+```{r}
+p1 <- love.plot(m_nearest, stats = "mean.diffs", abs = TRUE,
+                threshold = 0.1, stars = "std",
+                title = "Nearest")
+
+p2 <- love.plot(m_optimal, stats = "mean.diffs", abs = TRUE,
+                threshold = 0.1, stars = "std",
+                title = "Optimal")
+
+p3 <- love.plot(m_full, stats = "mean.diffs", abs = TRUE,
+                threshold = 0.1, stars = "std",
+                title = "Full")
+
+p4 <- love.plot(m_quick, stats = "mean.diffs", abs = TRUE,
+                threshold = 0.1, stars = "std",
+                title = "Quick")
+
+p5 <- love.plot(m_cem, stats = "mean.diffs", abs = TRUE,
+                threshold = 0.1, stars = "std",
+                title = "CEM")
+
+gridExtra::grid.arrange(p1, p2, p3, p4, p5, nrow = 3)
+```
+
+
+
+### Propensity Models (Ratio 1:1) CJ OLD  (SHOWS P-value)
+
+```{r}
+# 
+# df$TarsusresectedYesNo <- factor(df$TarsusresectedYesNo)
+# 
+# is.factor(df$TarsusresectedYesNo)
+# levels(df$TarsusresectedYesNo)
+```
+
 
 ```{r}
 ## Method = "nearest"
 
 # only included vars. with complete data 
-# match_model <- matchit(TarsusresectedYesNo ~ PreopMRD1 + Age + Gender + ODOS + TissueResectedmm, 
+# match_model <- matchit(TarsusresectedYesNo ~ PreopMRD1 + Age + Gender + ODOS,
 #                        data = df,
-#                        method = "nearest",     
-#                        ratio = 1)              
+#                        method = "nearest",
+#                        ratio = 1)
 
-match_model <- matchit(TarsusresectedYesNo ~ PreopMRD1 + ODOS + age_group, 
+match_model <- matchit(TarsusresectedYesNo ~ PreopMRD1 + ODOS + Age,
                        data = df,
-                       method = "nearest",     
-                       ratio = 1)            
+                       method = "nearest",
+                       ratio = 1)
 
 summary(match_model)
 
 # matched dataset
 matched_data <- match.data(match_model)
-matched_data[matched_data['subclass'] == 1, ] # example
+# matched_data[matched_data['subclass'] == 1, ] # example
+
+treated <- matched_data[matched_data$TarsusresectedYesNo == "Yes", ]
+control <- matched_data[matched_data$TarsusresectedYesNo == "No", ]
 
 # Nonparametric Test: Wilcox test
 wilcox.test(MostrecentPostOpMRD1 ~ TarsusresectedYesNo, data = matched_data)
@@ -169,8 +264,10 @@ wilcox.test(treated$MostrecentPostOpMRD1, control$MostrecentPostOpMRD1, paired =
 ```{r}
 ## Method = "optimal"
 
+# df$ODOS <- factor(df$ODOS)
+
 # only included vars. with complete data 
-match_model <- matchit(TarsusresectedYesNo ~ PreopMRD1 + age_group + ODOS, 
+match_model <- matchit(TarsusresectedYesNo ~ PreopMRD1 + Age + ODOS, 
                        data = df,
                        method = "optimal",     
                        ratio = 1)              
@@ -178,10 +275,12 @@ summary(match_model)
 
 # matched dataset
 matched_data <- match.data(match_model)
-matched_data[matched_data['subclass'] == 1, ] # example
+# matched_data[matched_data['subclass'] == 1, ] # example
 
-treated <- matched_data[matched_data$TarsusresectedYesNo == 1, ]
-control <- matched_data[matched_data$TarsusresectedYesNo == 0, ]
+# treated <- matched_data[matched_data$TarsusresectedYesNo == 1, ]
+# control <- matched_data[matched_data$TarsusresectedYesNo == 0, ]
+treated <- matched_data[matched_data$TarsusresectedYesNo == "Yes", ]
+control <- matched_data[matched_data$TarsusresectedYesNo == "No", ]
 paired_data <- merge(treated, control, by = "subclass", suffixes = c("_treated", "_control"))
 
 
@@ -190,12 +289,124 @@ paired_data <- merge(treated, control, by = "subclass", suffixes = c("_treated",
 # wilcox.test(treated$MostrecentPostOpMRD1, control$MostrecentPostOpMRD1, paired = TRUE)
 
 # Unpaired
-wilcox.test(paired_data$MostrecentPostOpMRD1_treated, paired_data$MostrecentPostOpMRD1_control)
+wilcox.test(paired_data$MostrecentPostOpMRD1_treated,paired_data$MostrecentPostOpMRD1_control)
 
 # Paired
 wilcox.test(paired_data$MostrecentPostOpMRD1_treated, paired_data$MostrecentPostOpMRD1_control, paired = TRUE)
 ```
-Lower p-value of 0.3532 with method = "optimal"
+Lower p-value of 0.03532 and 0.02541 with method = "optimal"
+
+
+```{r}
+## Method = "full"
+
+# df$ODOS <- factor(df$ODOS)
+
+# only included vars. with complete data 
+match_model <- matchit(TarsusresectedYesNo ~ PreopMRD1 + Age + ODOS + Gender, 
+                       data = df,
+                       method = "full")              
+summary(match_model)
+
+# matched dataset
+matched_data <- match.data(match_model)
+# matched_data[matched_data['subclass'] == 1, ] # example
+
+# treated <- matched_data[matched_data$TarsusresectedYesNo == 1, ]
+# control <- matched_data[matched_data$TarsusresectedYesNo == 0, ]
+treated <- matched_data[matched_data$TarsusresectedYesNo == "Yes", ]
+control <- matched_data[matched_data$TarsusresectedYesNo == "No", ]
+paired_data <- merge(treated, control, by = "subclass", suffixes = c("_treated", "_control"))
+
+
+# # Nonparametric Test: Wilcox test
+# wilcox.test(MostrecentPostOpMRD1 ~ TarsusresectedYesNo, data = matched_data)
+# wilcox.test(treated$MostrecentPostOpMRD1, control$MostrecentPostOpMRD1, paired = TRUE)
+
+# Unpaired
+wilcox.test(paired_data$MostrecentPostOpMRD1_treated,paired_data$MostrecentPostOpMRD1_control)
+
+# Paired
+wilcox.test(paired_data$MostrecentPostOpMRD1_treated, paired_data$MostrecentPostOpMRD1_control, paired = TRUE)
+```
+
+Lower p-value of 0.001115 and 0.0005508 with method = "full"
+
+
+```{r}
+## Method = "quick"
+
+# df$ODOS <- factor(df$ODOS)
+
+# only included vars. with complete data 
+match_model <- matchit(TarsusresectedYesNo ~ PreopMRD1 + Age + ODOS + Gender, 
+                       data = df,
+                       method = "quick")              
+summary(match_model)
+
+# matched dataset
+matched_data <- match.data(match_model)
+# matched_data[matched_data['subclass'] == 1, ] # example
+
+# treated <- matched_data[matched_data$TarsusresectedYesNo == 1, ]
+# control <- matched_data[matched_data$TarsusresectedYesNo == 0, ]
+treated <- matched_data[matched_data$TarsusresectedYesNo == "Yes", ]
+control <- matched_data[matched_data$TarsusresectedYesNo == "No", ]
+paired_data <- merge(treated, control, by = "subclass", suffixes = c("_treated", "_control"))
+
+
+# # Nonparametric Test: Wilcox test
+# wilcox.test(MostrecentPostOpMRD1 ~ TarsusresectedYesNo, data = matched_data)
+# wilcox.test(treated$MostrecentPostOpMRD1, control$MostrecentPostOpMRD1, paired = TRUE)
+
+# Unpaired
+wilcox.test(paired_data$MostrecentPostOpMRD1_treated,paired_data$MostrecentPostOpMRD1_control)
+
+# Paired
+wilcox.test(paired_data$MostrecentPostOpMRD1_treated, paired_data$MostrecentPostOpMRD1_control, paired = TRUE)
+```
+
+Lower p-value of 0.0004758 and 0.0001129 with method = "quick"
+
+
+```{r}
+## Method = "cem"
+
+# df$ODOS <- factor(df$ODOS)
+
+# only included vars. with complete data 
+match_model <- matchit(TarsusresectedYesNo ~ PreopMRD1 + Age + ODOS, 
+                       data = df,
+                       method = "cem")              
+summary(match_model)
+
+# matched dataset
+matched_data <- match.data(match_model)
+# matched_data[matched_data['subclass'] == 1, ] # example
+
+# treated <- matched_data[matched_data$TarsusresectedYesNo == 1, ]
+# control <- matched_data[matched_data$TarsusresectedYesNo == 0, ]
+treated <- matched_data[matched_data$TarsusresectedYesNo == "Yes", ]
+control <- matched_data[matched_data$TarsusresectedYesNo == "No", ]
+paired_data <- merge(treated, control, by = "subclass", suffixes = c("_treated", "_control"))
+
+
+# # Nonparametric Test: Wilcox test
+# wilcox.test(MostrecentPostOpMRD1 ~ TarsusresectedYesNo, data = matched_data)
+# wilcox.test(treated$MostrecentPostOpMRD1, control$MostrecentPostOpMRD1, paired = TRUE)
+
+# Unpaired
+wilcox.test(paired_data$MostrecentPostOpMRD1_treated,paired_data$MostrecentPostOpMRD1_control)
+
+# Paired
+wilcox.test(paired_data$MostrecentPostOpMRD1_treated, paired_data$MostrecentPostOpMRD1_control, paired = TRUE)
+```
+
+Lower p-value of 0.01727 and 0.003684 with method = "cem"
+
+
+
+
 
 ```{r}
 ## Method = "genetic"
@@ -203,7 +414,7 @@ Lower p-value of 0.3532 with method = "optimal"
 # only included vars. with complete data 
 match_model <- matchit(TarsusresectedYesNo ~ PreopMRD1 + Age + Gender + ODOS + TissueResectedmm, 
                        data = df,
-                       method = "exact",     
+                       method = "genetic",     
                        ratio = 1)              
 summary(match_model)
 
@@ -225,7 +436,7 @@ wilcox.test(treated$MostrecentPostOpMRD1, control$MostrecentPostOpMRD1, paired =
 
 ```{r}
 # Method argument = "optimal"
-match_model <- matchit(TarsusresectedYesNo ~ PreopMRD1 + Age + GenderMale1Female2 + 
+match_model <- matchit(TarsusresectedYesNo ~ PreopMRD1 + Age + 
                                               ODOS + TissueResectedmm, 
                        data = df,
                        method = "optimal",     
