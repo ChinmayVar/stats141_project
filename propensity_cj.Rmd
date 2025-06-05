@@ -218,6 +218,141 @@ p5 <- love.plot(m_cem, stats = "mean.diffs", abs = TRUE,
 gridExtra::grid.arrange(p1, p2, p3, p4, p5, nrow = 3)
 ```
 
+### Propensity Models Method = Full
+
+```{r}
+plot(m_full, type = "density", which.xs = ~ PreopMRD1 + Age + ODOS)
+
+```
+
+```{r}
+ library(cobalt)
+
+love.plot(m_full, stats = "mean.diffs", abs = TRUE,
+          threshold = 0.1, stars = "std",
+          title = "Covariate Balance: Full Matching")
+
+```
+
+```{r}
+# summary(m_full)$sum.all
+# summary(m_full)$sum.matched
+pre_balance <- summary(m_full)$sum.all
+post_balance <- summary(m_full)$sum.matched
+cbind(pre = pre_balance[, "Std. Mean Diff."],
+      post = post_balance[, "Std. Mean Diff."])
+
+```
+
+```{r}
+matched_data <- match.data(m_full)
+
+library(ggplot2)
+
+ggplot(matched_data, aes(x = TarsusresectedYesNo, y = MostrecentPostOpMRD1, fill = TarsusresectedYesNo)) +
+  geom_boxplot(width = 0.6, alpha = 0.7, color = "gray40") +
+  scale_fill_manual(values = c("skyblue", "salmon")) +
+  labs(
+    title = "Post-op MRD1 by Tarsectomy with Propensity Score Matching",
+    x = "Tarsectomy (0 = No, 1 = Yes)",
+    y = "Post-op MRD1 (mm)"
+  ) +
+  theme_minimal() +
+  theme(legend.position = "none")
+
+```
+
+```{r}
+matched_data <- match.data(m_full)  # or m_optimal
+
+# Separate treated and control
+treated <- matched_data[matched_data$TarsusresectedYesNo == "Yes", ]
+control <- matched_data[matched_data$TarsusresectedYesNo == "No", ]
+
+# Merge by subclass (matched pair ID)
+paired_data <- merge(treated, control, by = "subclass", suffixes = c("_treated", "_control"))
+paired_data$pair_id <- 1:nrow(paired_data)
+
+```
+
+```{r}
+library(ggplot2)
+
+ggplot(paired_data) +
+  geom_point(aes(x = pair_id, y = MostrecentPostOpMRD1_control, color = "Control")) +
+  geom_point(aes(x = pair_id, y = MostrecentPostOpMRD1_treated, color = "Treatment")) +
+  geom_segment(aes(x = pair_id, xend = pair_id,
+                   y = MostrecentPostOpMRD1_control, yend = MostrecentPostOpMRD1_treated),
+               color = "gray") +
+  scale_color_manual(values = c("Control" = "blue", "Treatment" = "red")) +
+  labs(title = "Post-Op MRD1: Treatment vs Control (Matched Pairs)",
+       x = "Matched Pair", y = "Post-op MRD1") +
+  theme_minimal()
+
+```
+
+```{r}
+paired_data$diff <- paired_data$MostrecentPostOpMRD1_treated - paired_data$MostrecentPostOpMRD1_control
+paired_data$effect <- ifelse(paired_data$diff > 0, "Improved", "Declined")
+
+ggplot(paired_data, aes(x = pair_id, y = diff, color = effect)) +
+  geom_point(size = 2) +
+  scale_color_manual(values = c("Improved" = "green", "Declined" = "red")) +
+  labs(title = "Difference in Post-op MRD1 (Treatment - Control)",
+       x = "Matched Pairs", y = "Difference in Post-op MRD1") +
+  theme_minimal()
+
+```
+
+```{r}
+success_rate <- mean(paired_data$diff > 0)
+avg_improvement <- mean(paired_data$diff)
+
+cat(sprintf("Success rate: %.0f out of %d patients (%.0f%%) improved with tarsectomy\n",
+            sum(paired_data$diff > 0), nrow(paired_data), success_rate * 100))
+
+cat(sprintf("Average improvement: %.3f mm increase in Post-op MRD1\n", avg_improvement))
+
+```
+
+
+```{r}
+t_unpaired <- t.test(MostrecentPostOpMRD1 ~ TarsusresectedYesNo, data = matched_data)
+t_paired <- t.test(paired_data$MostrecentPostOpMRD1_treated,
+                   paired_data$MostrecentPostOpMRD1_control,
+                   paired = TRUE)
+
+wilcox_unpaired <- wilcox.test(MostrecentPostOpMRD1 ~ TarsusresectedYesNo, data = matched_data)
+wilcox_paired <- wilcox.test(paired_data$MostrecentPostOpMRD1_treated,
+                              paired_data$MostrecentPostOpMRD1_control,
+                              paired = TRUE)
+
+mean_diff <- round(mean(paired_data$diff), 3)
+success_rate <- round(mean(paired_data$diff > 0) * 100, 1)
+
+cat(sprintf("Mean difference: %.3f mm\n", mean_diff))
+cat(sprintf("Success rate: %d out of %d (%.1f%%)\n",
+            sum(paired_data$diff > 0), nrow(paired_data), success_rate))
+
+# Confidence interval from t-test
+t_paired$conf.int
+
+```
+```{r}
+sprintf("Unpaired t-test: t = %.3f, p = %.3f, CI = [%.4f, %.4f]",
+        t_unpaired$statistic, t_unpaired$p.value, t_unpaired$conf.int[1], t_unpaired$conf.int[2])
+
+sprintf("Paired t-test: t = %.3f, p = %.3f, CI = [%.3f, %.3f]",
+        t_paired$statistic, t_paired$p.value, t_paired$conf.int[1], t_paired$conf.int[2])
+
+sprintf("Unpaired Wilcoxon: W = %.1f, p = %.3f",
+        wilcox_unpaired$statistic, wilcox_unpaired$p.value)
+
+sprintf("Paired Wilcoxon: V = %.1f, p = %.3f",
+        wilcox_paired$statistic, wilcox_paired$p.value)
+
+```
+
 
 
 ### Propensity Models (Ratio 1:1) CJ OLD  (SHOWS P-value)
@@ -303,7 +438,7 @@ Lower p-value of 0.03532 and 0.02541 with method = "optimal"
 # df$ODOS <- factor(df$ODOS)
 
 # only included vars. with complete data 
-match_model <- matchit(TarsusresectedYesNo ~ PreopMRD1 + Age + ODOS + Gender, 
+match_model <- matchit(TarsusresectedYesNo ~ PreopMRD1 + Age + ODOS, 
                        data = df,
                        method = "full")              
 summary(match_model)
